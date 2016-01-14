@@ -1,0 +1,203 @@
+huge_fw:
+  enabled: True
+  install: True
+  strict: False
+  ipset:
+    CL_ADMINS:
+      comment: "group of administration IPs"
+      ips_allow:
+        - 172.27.9.13/32
+        - 172.28.145.0/27
+    CL_BLACKLIST:
+      comment: "Blocked ip addresses"
+      ips_allow:
+        - 10.8.0.0/23
+  chains:
+    outsideFwdIn:
+      defaults: True
+      10:
+        comment: "drop blacklisted ip addresses"
+        jump: DROP
+        ips_in: CL_BLACKLIST
+        ips_out: 0.0.0.0/0
+        proto: tcp
+      11:
+        comment: "OPS-BAKMASTER1 to all servers - Bacula File daemon"
+        jump: ACCEPT
+        ips_in: CL_ADMINS
+        ips_out: 0.0.0.0/0
+        proto: tcp
+        dports:
+          - 22
+          - 80
+          - 443
+          - 5665
+          - 5666
+    outsideIn:
+      defaults: True
+      10:
+        comment: "drop blacklisted ip addresses"
+        jump: DROP
+        ips_in: CL_BLACKLIST
+        ips_out: 0.0.0.0/0
+        proto: tcp
+      11:
+        comment: "CL_WWW-SAITHRU HTTP/HTTPS access to WWW-VIP"
+        jump: ACCEPT
+        ips_in: CL_ADMINS
+        ips_out: 0.0.0.0/0
+        dports:
+          - 22
+          - 80
+          - 443
+    outsideFwdOut:
+      defaults: False
+      10:
+        comment: "Default access from inside to outside"
+        jump: ACCEPT
+    natFOutSide:
+      defaults: False
+      table: nat
+      40:
+        jump: RETURN
+        ips_in: 10.10.0.0/24
+        ips_out: 10.11.214.0/24
+        dev_in: eth0
+      50:
+        jump: DNAT
+        dports:
+          - 5665
+          - 5666
+        dst-range: 10.152.28.90-10.152.28.93
+        to-destination: 10.11.214.201
+        proto: tcp
+        dev_in: eth0
+    natFInSide:
+      defaults: False
+      table: nat
+      10:
+        jump: RETURN
+        ips_in: 10.11.214.0/24
+        ips_out: 10.10.0.0/24
+        dev_out: eth0
+      990:
+        jump: MASQUERADE
+        proto: all
+        ips_in: 10.11.214.0/24
+        dev_out: eth1
+      1000:
+        jump: MASQUERADE
+        proto: all
+        ips_in: 10.11.214.0/24
+        dev_out: eth0
+  root_chains:
+    FORWARD:
+      10:
+        ch_name: outsideFwdIn
+        src_dev: eth0
+      20:
+        ch_name: outsideFwdOut
+        dst_dev: eth0
+    INPUT:
+      10:
+        ch_name: outsideIn
+        src_dev: eth0
+    POSTROUTING:
+      10:
+        ch_name: natFInSide
+    PREROUTING:
+      10:
+        ch_name: natFOutSide
+keepalived:
+  enabled: True
+  install: True
+  networks:
+    sample-ubfw1:
+      ext:
+        - address: "10.152.28.90"
+      int:
+        - address: "10.11.214.2"
+        - netmask: "255.255.255.0"
+      sync:
+        - address: "172.18.100.1"
+        - netmask: "255.255.255.252"
+      state:
+        - "MASTER"
+    sample-ubfw2:
+      ext:
+        - address: "10.152.28.91"
+      int:
+        - address: "10.11.214.3"
+        - netmask: "255.255.255.0"
+      sync:
+        - address: "172.18.100.2"
+        - netmask: "255.255.255.252"
+      state:
+        - "BACKUP"
+  keepalived:
+    ext_vip:
+      - ip:
+        - "10.152.28.93"
+      - name: "PUBLIC"
+      - auth_pass: "<SOME_PASSWORD>"
+      - vrid: 10
+    int_vip:
+      - ip:
+        - "10.11.214.1"
+      - name: "LOCAL"
+      - auth_pass: "<SOME_PASSWORD>"
+      - vrid: 20
+ldirector:
+  enabled: True
+  install: True
+  rules:
+    "10.152.28.93":
+      "80":
+        - lb_algo: wlc
+        - lb_kind: masq
+        - proto: TCP
+        - rip_list:
+          - "10.11.214.5": "80"
+          - "10.11.214.6": "80"
+      "443":
+        - lb_algo: wlc
+        - lb_kind: masq
+        - proto: TCP
+        - rip_list:
+          - "10.11.214.5": "443"
+          - "10.11.214.6": "443"
+conntrackd:
+  enabled: True
+  install: True
+  sample-ubfw1:
+    ip: 172.18.100.1
+    slave: sample-ubfw2
+    dev: eth2
+  sample-ubfw2:
+    ip: 172.18.100.2
+    slave: sample-ubfw1
+    dev: eth2
+  ignore_list:
+    - 127.0.0.1
+    - 172.18.100.1
+    - 172.18.100.2
+    - 10.152.28.90
+    - 10.152.28.91
+    - 10.11.214.2
+    - 10.11.214.3
+ipsec:
+  keyexchange: ikev1
+  esp: aes256-sha1!
+  keylife: 3600s
+  rekeymargin: 540s
+  ike: aes256-sha1-modp1024!
+  peers:
+    <SOME_EXTERNAL_IPSEC_HOST>:
+      ikelifetime: 28800s
+      left: 10.152.28.93
+      right: <SOME_EXTERNAL_IPSEC_HOST>
+      leftsubnet: 10.11.214.0/24
+      rightsubnet: 10.10.0.0/24
+      leftsourceip: 10.11.214.1
+      auto: start
+      password: <SOME_IPSEC_PASSWORD>

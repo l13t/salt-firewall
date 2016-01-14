@@ -1,0 +1,29 @@
+--- iptables.py 2015-07-08 06:42:00.000000000 +1000
++++ /usr/lib/python2.7/dist-packages/salt/modules/iptables.py   2015-12-07 23:29:57.841689228 +1100
+@@ -202,6 +202,16 @@
+                 rule += '--name {0} '.format(kwargs['name'])
+         del kwargs['match']
+ 
++    if 'match-set' in kwargs:
++        if not isinstance(kwargs['match-set'], list):
++            kwargs['match-set'] = kwargs['match-set'].split(',')
++        for match_s in kwargs['match-set']:
++            negative_match_set = ''
++            if match_s.startswith('!') or match_s.startswith('not'):
++                negative_match_set = '!'
++            rule += '-m set {0} --match-set {1} '.format(negative_match_set, match_s)
++        del kwargs['match-set']
++
+     if 'name' in kwargs:
+         del kwargs['name']
+ 
+@@ -1173,7 +1183,7 @@
+     ## sctp
+     add_arg('--chunk-types', dest='chunk-types', action='append')
+     ## set
+-    add_arg('--match-set', dest='match-set', action='append', nargs=2)
++    add_arg('--match-set', dest='match-set', action='append')
+     add_arg('--return-nomatch', dest='return-nomatch', action='append')
+     add_arg('--update-counters', dest='update-counters', action='append')
+     add_arg('--update-subcounters', dest='update-subcounters', action='append')
+

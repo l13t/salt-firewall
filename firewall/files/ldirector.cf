@@ -1,0 +1,29 @@
+checktimeout=3
+checkinterval=1
+autoreload=yes
+logfile="/var/log/ldirectord.log"
+quiescent=yes
+
+{%- for vip, vip_details in salt['pillar.get']('ldirector:rules', {}).iteritems() %}
+  {%- for vip_port, vp_details in vip_details.iteritems() %}
+    {%- set lb_algo = vp_details['lb_algo'] %}
+    {%- set lb_kind = vp_details['lb_kind'] %}
+    {%- set proto = vp_details['proto'] %}
+
+virtual={{ vip }}:{{ vip_port }}
+    {%- for rip_data in salt['pillar.get']('ldirector:rules:%s:%s:rip_list' % (vip, vip_port), {}) %}
+      {%- for rip, rip_port in rip_data.items() %}
+    real={{ rip }}:{{ rip_port }} masq 100
+      {%- endfor %}
+    {%- endfor %}
+    {%- set fb_ip = salt['pillar.get']('ldirector:rules:%s:%s:fallback_list' % (vip, vip_port), {}) -%}
+    {%- if fb_ip != {} -%}
+      {%- for fbip,fbip_port in fb_ip.items() -%}
+    fallback={{ fbip }}:{{ fbip_port }} masq 100
+      {%- endfor -%}
+    {%- endif -%}
+    scheduler=wlc
+    protocol={{ proto }}
+    checktype=ping
+  {%- endfor %}
+{%- endfor %}
